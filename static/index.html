@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>local agent</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1319; --panel:#161b23; --raised:#1e242f; --border:#2a313d;
+    --text:#e4e8f0; --muted:#828b9c; --user:#6ea8fe;
+    --caution:#e6a95c; --danger:#e5747a; --ok:#6bcf8e;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    display:flex; flex-direction:column; font-size:15px; line-height:1.55;
+  }
+
+  /* header */
+  header{
+    display:flex; align-items:center; gap:12px;
+    padding:14px 20px; border-bottom:1px solid var(--border);
+    background:linear-gradient(var(--panel),var(--bg));
+  }
+  .wordmark{font-family:var(--mono); font-weight:600; letter-spacing:.02em}
+  .wordmark .caret{color:var(--user)}
+  select.model{font-family:var(--mono); font-size:12.5px; color:var(--muted);
+    background:var(--panel); border:1px solid var(--border); border-radius:6px;
+    padding:4px 8px; cursor:pointer}
+  select.model:focus{outline:none; border-color:var(--user)}
+  select.model:disabled{opacity:.5; cursor:not-allowed}
+  .status{margin-left:auto; display:flex; align-items:center; gap:7px;
+    font-family:var(--mono); font-size:12px; color:var(--muted)}
+  .newchat{font-family:var(--mono); font-size:12px; padding:6px 12px; margin-left:14px}
+  .dot{width:8px; height:8px; border-radius:50%; background:var(--muted)}
+  .dot.on{background:var(--ok)} .dot.off{background:var(--danger)}
+
+  /* transcript */
+  main{flex:1; overflow-y:auto; padding:24px 0}
+  .wrap{max-width:760px; margin:0 auto; padding:0 20px}
+  .turn{margin-bottom:22px}
+  .who{font-family:var(--mono); font-size:11.5px; color:var(--muted); margin-bottom:5px}
+  .turn.user .who{color:var(--user)}
+  .bubble{white-space:pre-wrap; word-wrap:break-word}
+  .turn.user .bubble{color:#cdd6e6}
+
+  /* tool events — deliberately NOT chat bubbles; these are system log lines */
+  .event{
+    font-family:var(--mono); font-size:13px; border-left:2px solid var(--border);
+    padding:8px 0 8px 14px; margin:12px 0; color:var(--muted);
+  }
+  .event .tname{color:var(--text)}
+  .event.result{white-space:pre-wrap; color:#aeb7c7; border-left-color:#3a4252}
+  .event.result .head{color:var(--muted); margin-bottom:4px}
+
+  /* the one loud element: the approval gate */
+  .gate{
+    border:1px solid var(--caution); border-radius:10px; margin:14px 0;
+    background:rgba(230,169,92,.05); overflow:hidden;
+  }
+  .gate .gtitle{
+    display:flex; align-items:center; gap:8px; padding:11px 16px;
+    font-family:var(--mono); font-size:12.5px; color:var(--caution);
+    border-bottom:1px solid rgba(230,169,92,.25);
+  }
+  .gate .cmd{
+    font-family:var(--mono); font-size:13.5px; padding:14px 16px;
+    color:var(--text); white-space:pre-wrap; word-break:break-all;
+  }
+  .gate .gact{display:flex; gap:10px; padding:0 16px 14px}
+  button{font-family:var(--sans); font-size:14px; font-weight:500;
+    border:1px solid var(--border); border-radius:7px; padding:8px 18px;
+    cursor:pointer; background:var(--raised); color:var(--text)}
+  button:focus-visible{outline:2px solid var(--user); outline-offset:2px}
+  .allow{background:var(--caution); border-color:var(--caution); color:#241a09; font-weight:600}
+  .deny{color:var(--danger); border-color:rgba(229,116,122,.4)}
+  .gate.done{border-color:var(--border); background:transparent}
+  .gate.done .gtitle{color:var(--muted); border-bottom-color:var(--border)}
+  .verdict{font-family:var(--mono); font-size:12px; padding:0 16px 14px}
+  .verdict.a{color:var(--ok)} .verdict.d{color:var(--danger)}
+
+  /* thinking indicator */
+  .think{font-family:var(--mono); font-size:13px; color:var(--muted)}
+  .think span{animation:blink 1.2s infinite}
+  .think span:nth-child(2){animation-delay:.2s}
+  .think span:nth-child(3){animation-delay:.4s}
+  @keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
+  @media (prefers-reduced-motion:reduce){.think span{animation:none;opacity:.6}}
+
+  /* composer */
+  footer{border-top:1px solid var(--border); background:var(--panel)}
+  .composer{max-width:760px; margin:0 auto; padding:14px 20px; display:flex; gap:10px}
+  textarea{
+    flex:1; resize:none; background:var(--bg); color:var(--text);
+    border:1px solid var(--border); border-radius:9px; padding:11px 13px;
+    font-family:var(--sans); font-size:15px; line-height:1.4; max-height:160px;
+  }
+  textarea:focus{outline:none; border-color:var(--user)}
+  textarea:disabled{opacity:.5}
+  .send{align-self:stretch; padding:0 20px}
+  .send:disabled{opacity:.4; cursor:not-allowed}
+</style>
+</head>
+<body>
+  <header>
+    <span class="wordmark"><span class="caret">›</span>&nbsp;local&nbsp;agent</span>
+    <select class="model" id="model" title="active model"></select>
+    <span class="status"><span class="dot" id="dot"></span><span id="statustext">connecting</span></span>
+    <button class="newchat" id="newchat">New chat</button>
+  </header>
+
+  <main id="main"><div class="wrap" id="log"></div></main>
+
+  <footer><div class="composer">
+    <textarea id="input" rows="1" placeholder="Ask the agent to do something…"></textarea>
+    <button class="send" id="send" disabled>Send</button>
+  </div></footer>
+
+<script>
+const log = document.getElementById("log");
+const main = document.getElementById("main");
+const input = document.getElementById("input");
+const send = document.getElementById("send");
+const dot = document.getElementById("dot");
+const statustext = document.getElementById("statustext");
+const modelSel = document.getElementById("model");
+
+let ws, busy = false, pendingGate = null;
+
+function scroll(){ main.scrollTop = main.scrollHeight; }
+function el(cls, parent){ const d=document.createElement("div"); if(cls)d.className=cls; (parent||log).appendChild(d); return d; }
+
+function turn(who, text, cls){
+  const t = el("turn "+(cls||""));
+  el("who", t).textContent = who;
+  el("bubble", t).textContent = text;
+  scroll();
+  return t;
+}
+
+function connect(){
+  ws = new WebSocket(`ws://${location.host}/ws`);
+  ws.onopen  = () => { dot.className="dot on";  statustext.textContent="connected"; setBusy(false); };
+  ws.onclose = () => { dot.className="dot off"; statustext.textContent="disconnected"; setBusy(true); setTimeout(connect,1500); };
+  ws.onmessage = (e) => handle(JSON.parse(e.data));
+}
+
+function setBusy(b){
+  busy = b;
+  input.disabled = b; send.disabled = b || !input.value.trim();
+  modelSel.disabled = b;
+  if(!b) input.focus();
+}
+
+let thinkingEl = null;
+function showThinking(on){
+  if(on && !thinkingEl){
+    thinkingEl = el("turn");
+    thinkingEl.innerHTML = `<div class="think">agent is working<span>.</span><span>.</span><span>.</span></div>`;
+    scroll();
+  } else if(!on && thinkingEl){ thinkingEl.remove(); thinkingEl=null; }
+}
+
+// streaming: one live agent bubble we append tokens to
+let streamBubble = null;
+function startStream(){
+  showThinking(false);
+  const t = el("turn agent");
+  el("who", t).textContent = "agent";
+  streamBubble = el("bubble", t);
+  scroll();
+}
+function appendToken(txt){
+  if(!streamBubble) startStream();
+  streamBubble.textContent += txt;
+  scroll();
+}
+function endStream(){ streamBubble = null; }
+
+function handle(m){
+  switch(m.type){
+    case "history":              // saved conversation, shown on page load
+      log.innerHTML = "";
+      m.turns.forEach(t => turn(t.role==="user"?"you":"agent", t.content, t.role==="user"?"user":"agent"));
+      break;
+    case "models": {             // populate the model dropdown
+      modelSel.innerHTML = "";
+      m.available.forEach(name => {
+        const o = document.createElement("option");
+        o.value = name; o.textContent = name;
+        if(name === m.current) o.selected = true;
+        modelSel.appendChild(o);
+      });
+      break;
+    }
+    case "model_set": {
+      const ev = el("event");
+      ev.innerHTML = `⇄ <span class="tname">model</span> → ${escapeHtml(m.model)}`;
+      scroll(); break;
+    }
+    case "cleared":
+      log.innerHTML = ""; break;
+    case "status":
+      if(m.state==="thinking"){ setBusy(true); showThinking(true); }
+      else { showThinking(false); setBusy(false); }
+      break;
+    case "assistant_start": startStream(); break;
+    case "token": appendToken(m.content); break;
+    case "assistant_end": endStream(); break;
+    case "assistant":                 // full message (e.g. hop-limit notice)
+      showThinking(false); turn("agent", m.content, "agent"); break;
+    case "tool_run": {           // auto-run tool (remember/read/search/fetch)
+      showThinking(false);
+      const ev = el("event");
+      if(m.name==="remember"){
+        ev.innerHTML = `💾 <span class="tname">remembered</span> ${escapeHtml(m.args.fact ?? "")}`;
+      } else {
+        ev.innerHTML = `↳ <span class="tname">${m.name}</span> ${escapeHtml(JSON.stringify(m.args))}`;
+      }
+      scroll(); break;
+    }
+    case "tool_result": {
+      const ev = el("event result");
+      el("head", ev).textContent = `${m.name} →`;
+      const body = document.createElement("div"); body.textContent = m.content; ev.appendChild(body);
+      scroll(); break;
+    }
+    case "tool_request": gate(m); break;
+    case "error": turn("error", m.content, "agent"); break;
+  }
+}
+
+function gate(m){                 // the approval moment
+  showThinking(false);
+  const g = el("gate");
+  g.innerHTML = `
+    <div class="gtitle">⚠ agent wants to run ${m.name}</div>
+    <div class="cmd">${escapeHtml(m.args.command ?? JSON.stringify(m.args))}</div>
+    <div class="gact">
+      <button class="allow">Allow</button>
+      <button class="deny">Deny</button>
+    </div>`;
+  scroll();
+  const finish = (approved) => {
+    ws.send(JSON.stringify({ id:m.id, approved }));
+    g.classList.add("done");
+    g.querySelector(".gact").remove();
+    const v = document.createElement("div");
+    v.className = "verdict " + (approved?"a":"d");
+    v.textContent = approved ? "✓ allowed" : "✕ denied";
+    g.appendChild(v);
+  };
+  g.querySelector(".allow").onclick = () => finish(true);
+  g.querySelector(".deny").onclick  = () => finish(false);
+  g.querySelector(".allow").focus();
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c])); }
+
+function submit(){
+  const text = input.value.trim();
+  if(!text || busy) return;
+  turn("you", text, "user");
+  ws.send(JSON.stringify({ type:"user", content:text }));
+  input.value=""; input.style.height="auto"; send.disabled=true;
+}
+
+modelSel.onchange = () => {
+  if(busy) return;
+  ws.send(JSON.stringify({ type:"set_model", model: modelSel.value }));
+};
+
+document.getElementById("newchat").onclick = () => {
+  if(busy) return;
+  ws.send(JSON.stringify({ type:"reset" }));
+};
+
+send.onclick = submit;
+input.addEventListener("input", ()=>{
+  send.disabled = busy || !input.value.trim();
+  input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,160)+"px";
+});
+input.addEventListener("keydown", (e)=>{
+  if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); submit(); }
+});
+
+connect();
+</script>
+</body>
+</html>

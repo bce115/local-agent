@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+history.json
+memory.md
+.venv/
+venv/
+env/
+files/
+.DS_Store
+*.log
