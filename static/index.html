@@ -7,6 +7,8 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;450;500;600&display=swap" rel="stylesheet">
+<script src="/static/vendor/marked.min.js"></script>
+<script src="/static/vendor/purify.min.js"></script>
 <style>
   :root{
     --bg:#0f1319; --panel:#161b23; --raised:#1e242f; --border:#2a313d;
@@ -14,6 +16,7 @@
     --caution:#e6a95c; --danger:#e5747a; --ok:#6bcf8e;
     --mono:"IBM Plex Mono",ui-monospace,monospace;
     --sans:"IBM Plex Sans",system-ui,sans-serif;
+    --side:232px;
   }
   *{box-sizing:border-box}
   html,body{height:100%;margin:0}
@@ -22,10 +25,9 @@
     display:flex; flex-direction:column; font-size:15px; line-height:1.55;
   }
 
-  /* header */
   header{
-    display:flex; align-items:center; gap:12px;
-    padding:14px 20px; border-bottom:1px solid var(--border);
+    display:flex; align-items:center; gap:10px; flex-shrink:0; flex-wrap:wrap;
+    padding:12px 16px; border-bottom:1px solid var(--border);
     background:linear-gradient(var(--panel),var(--bg));
   }
   .wordmark{font-family:var(--mono); font-weight:600; letter-spacing:.02em}
@@ -37,11 +39,43 @@
   select.model:disabled{opacity:.5; cursor:not-allowed}
   .status{margin-left:auto; display:flex; align-items:center; gap:7px;
     font-family:var(--mono); font-size:12px; color:var(--muted)}
-  .newchat{font-family:var(--mono); font-size:12px; padding:6px 12px; margin-left:14px}
   .dot{width:8px; height:8px; border-radius:50%; background:var(--muted)}
   .dot.on{background:var(--ok)} .dot.off{background:var(--danger)}
+  .ghost{font-family:var(--mono); font-size:12px; padding:6px 10px}
 
-  /* transcript */
+  .shell{flex:1; display:flex; min-height:0}
+  aside.sidebar{
+    width:var(--side); flex-shrink:0; border-right:1px solid var(--border);
+    background:var(--panel); display:flex; flex-direction:column; min-height:0;
+  }
+  .sidehead{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 12px 8px; font-family:var(--mono); font-size:12px; color:var(--muted);
+  }
+  #chatlist{flex:1; overflow-y:auto; padding:4px 8px 12px}
+  .chatitem{
+    display:flex; align-items:center; gap:6px; width:100%;
+    background:transparent; border:1px solid transparent; border-radius:7px;
+    padding:8px 8px; margin-bottom:4px; text-align:left; cursor:pointer;
+    color:var(--text); font-size:13px;
+  }
+  .chatitem:hover{background:var(--raised)}
+  .chatitem.on{border-color:var(--border); background:var(--raised)}
+  .chatitem .title,.chatitem .x{
+    background:transparent; border:none; box-shadow:none; font-weight:400; padding:0;
+  }
+  .chatitem .title{
+    flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    text-align:left; font-size:13px; color:inherit;
+  }
+  .chatitem .x{opacity:0; padding:2px 7px; font-size:12px; color:var(--muted)}
+  .chatitem:hover .x,.chatitem.on .x{opacity:1}
+  .chatitem input{
+    flex:1; min-width:0; background:var(--bg); color:var(--text);
+    border:1px solid var(--user); border-radius:5px; padding:4px 6px; font-size:13px;
+  }
+
+  .col{flex:1; display:flex; flex-direction:column; min-width:0; position:relative}
   main{flex:1; overflow-y:auto; padding:24px 0}
   .wrap{max-width:760px; margin:0 auto; padding:0 20px}
   .turn{margin-bottom:22px}
@@ -50,16 +84,38 @@
   .bubble{white-space:pre-wrap; word-wrap:break-word}
   .turn.user .bubble{color:#cdd6e6}
 
-  /* tool events — deliberately NOT chat bubbles; these are system log lines */
+  .bubble.md{white-space:normal}
+  .bubble.md p{margin:0 0 .7em}
+  .bubble.md p:last-child,.bubble.md pre:last-child,.bubble.md ul:last-child,.bubble.md ol:last-child{margin-bottom:0}
+  .bubble.md pre{
+    background:var(--raised); border:1px solid var(--border); border-radius:8px;
+    padding:12px 14px; overflow-x:auto; font-family:var(--mono); font-size:13px; line-height:1.45;
+  }
+  .bubble.md code{font-family:var(--mono); font-size:.9em}
+  .bubble.md pre code{font-size:13px}
+  .bubble.md a{color:var(--user)}
+  .bubble.md ul,.bubble.md ol{margin:.4em 0 .8em; padding-left:1.35em}
+  .bubble.md h1,.bubble.md h2,.bubble.md h3{font-size:1.05em; margin:.8em 0 .4em}
+  .bubble.md blockquote{margin:.5em 0; padding-left:12px; border-left:2px solid var(--border); color:var(--muted)}
+
   .event{
     font-family:var(--mono); font-size:13px; border-left:2px solid var(--border);
-    padding:8px 0 8px 14px; margin:12px 0; color:var(--muted);
+    padding:8px 0 8px 14px; margin:8px 0; color:var(--muted);
   }
   .event .tname{color:var(--text)}
   .event.result{white-space:pre-wrap; color:#aeb7c7; border-left-color:#3a4252}
   .event.result .head{color:var(--muted); margin-bottom:4px}
 
-  /* the one loud element: the approval gate */
+  details.tool{
+    font-family:var(--mono); font-size:13px; color:var(--muted);
+    border-left:2px solid var(--border); padding:4px 0 4px 14px; margin:10px 0;
+  }
+  details.tool > summary{cursor:pointer; color:var(--text); list-style:none}
+  details.tool > summary::-webkit-details-marker{display:none}
+  details.tool > summary::before{content:"▸ "; color:var(--muted)}
+  details.tool[open] > summary::before{content:"▾ "}
+  details.tool .event{border-left:none; padding-left:0; margin:8px 0 0}
+
   .gate{
     border:1px solid var(--caution); border-radius:10px; margin:14px 0;
     background:rgba(230,169,92,.05); overflow:hidden;
@@ -85,7 +141,6 @@
   .verdict{font-family:var(--mono); font-size:12px; padding:0 16px 14px}
   .verdict.a{color:var(--ok)} .verdict.d{color:var(--danger)}
 
-  /* thinking indicator */
   .think{font-family:var(--mono); font-size:13px; color:var(--muted)}
   .think span{animation:blink 1.2s infinite}
   .think span:nth-child(2){animation-delay:.2s}
@@ -93,34 +148,84 @@
   @keyframes blink{0%,60%,100%{opacity:.25}30%{opacity:1}}
   @media (prefers-reduced-motion:reduce){.think span{animation:none;opacity:.6}}
 
-  /* composer */
-  footer{border-top:1px solid var(--border); background:var(--panel)}
+  footer{border-top:1px solid var(--border); background:var(--panel); flex-shrink:0}
   .composer{max-width:760px; margin:0 auto; padding:14px 20px; display:flex; gap:10px}
-  textarea{
+  textarea#input{
     flex:1; resize:none; background:var(--bg); color:var(--text);
     border:1px solid var(--border); border-radius:9px; padding:11px 13px;
     font-family:var(--sans); font-size:15px; line-height:1.4; max-height:160px;
   }
-  textarea:focus{outline:none; border-color:var(--user)}
-  textarea:disabled{opacity:.5}
+  textarea#input:focus{outline:none; border-color:var(--user)}
+  textarea#input:disabled{opacity:.5}
   .send{align-self:stretch; padding:0 20px}
   .send:disabled{opacity:.4; cursor:not-allowed}
+  .send.stop{background:var(--danger); border-color:var(--danger); color:#1a0c0d; font-weight:600}
+
+  .jump{
+    position:absolute; right:22px; bottom:86px; z-index:5;
+    font-family:var(--mono); font-size:12px; padding:7px 12px;
+  }
+  .jump[hidden]{display:none}
+
+  .drawer{
+    position:fixed; top:0; right:0; bottom:0; width:min(420px,100%);
+    background:var(--panel); border-left:1px solid var(--border);
+    z-index:30; display:flex; flex-direction:column; padding:16px 16px 18px;
+  }
+  .drawer[hidden]{display:none}
+  .dhead{display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;
+    font-family:var(--mono); font-size:13px}
+  #memtext{
+    flex:1; resize:none; background:var(--bg); color:var(--text);
+    border:1px solid var(--border); border-radius:9px; padding:11px 13px;
+    font-family:var(--mono); font-size:13px; line-height:1.45;
+  }
+  #memtext:focus{outline:none; border-color:var(--user)}
+  .dact{display:flex; gap:10px; margin-top:12px}
+  .scrim{position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:25}
+  .scrim[hidden]{display:none}
+
+  @media (max-width:720px){
+    aside.sidebar{width:168px}
+  }
 </style>
 </head>
 <body>
   <header>
     <span class="wordmark"><span class="caret">›</span>&nbsp;local&nbsp;agent</span>
     <select class="model" id="model" title="active model"></select>
+    <button class="ghost" id="collapsebtn" title="collapse tool logs">Collapse tools</button>
+    <button class="ghost" id="membtn">Memory</button>
+    <button class="ghost" id="exportmd">Export.md</button>
+    <button class="ghost" id="exportjson">Export.json</button>
     <span class="status"><span class="dot" id="dot"></span><span id="statustext">connecting</span></span>
-    <button class="newchat" id="newchat">New chat</button>
+    <button class="ghost" id="newchat">New chat</button>
   </header>
 
-  <main id="main"><div class="wrap" id="log"></div></main>
+  <div class="shell">
+    <aside class="sidebar">
+      <div class="sidehead"><span>chats</span><button class="ghost" id="newchat2" title="New chat">New</button></div>
+      <div id="chatlist"></div>
+    </aside>
+    <div class="col">
+      <main id="main"><div class="wrap" id="log"></div></main>
+      <button class="jump" id="jump" hidden>↓ latest</button>
+      <footer><div class="composer">
+        <textarea id="input" rows="1" placeholder="Ask the agent to do something…"></textarea>
+        <button class="send" id="send" disabled>Send</button>
+      </div></footer>
+    </div>
+  </div>
 
-  <footer><div class="composer">
-    <textarea id="input" rows="1" placeholder="Ask the agent to do something…"></textarea>
-    <button class="send" id="send" disabled>Send</button>
-  </div></footer>
+  <div class="scrim" id="scrim" hidden></div>
+  <aside class="drawer" id="drawer" hidden>
+    <div class="dhead"><span>memory.md</span><button class="ghost" id="memclose">Close</button></div>
+    <textarea id="memtext" placeholder="Durable facts the agent injects into every chat…"></textarea>
+    <div class="dact">
+      <button id="memsave">Save</button>
+      <button class="deny" id="memclear">Clear</button>
+    </div>
+  </aside>
 
 <script>
 const log = document.getElementById("log");
@@ -130,16 +235,55 @@ const send = document.getElementById("send");
 const dot = document.getElementById("dot");
 const statustext = document.getElementById("statustext");
 const modelSel = document.getElementById("model");
+const chatlist = document.getElementById("chatlist");
+const jump = document.getElementById("jump");
+const drawer = document.getElementById("drawer");
+const scrim = document.getElementById("scrim");
+const memtext = document.getElementById("memtext");
+const collapsebtn = document.getElementById("collapsebtn");
 
 let ws, busy = false, pendingGate = null;
+let chats = [], currentChat = "";
+let toolsCollapsed = false;
+let stickToBottom = true;
+let exportTurns = [];
+let pendingExport = null;
 
-function scroll(){ main.scrollTop = main.scrollHeight; }
+if (window.marked && marked.setOptions) marked.setOptions({ gfm: true, breaks: false });
+
+function nearBottom(){
+  return main.scrollHeight - main.scrollTop - main.clientHeight < 96;
+}
+function scroll(){
+  if (stickToBottom) main.scrollTop = main.scrollHeight;
+  jump.hidden = stickToBottom;
+}
+main.addEventListener("scroll", () => {
+  stickToBottom = nearBottom();
+  jump.hidden = stickToBottom;
+});
+jump.onclick = () => { stickToBottom = true; scroll(); };
+
 function el(cls, parent){ const d=document.createElement("div"); if(cls)d.className=cls; (parent||log).appendChild(d); return d; }
+
+function renderMarkdown(node, text){
+  const raw = text ?? "";
+  if (window.marked && window.DOMPurify){
+    node.classList.add("md");
+    node.style.whiteSpace = "normal";
+    const html = typeof marked.parse === "function" ? marked.parse(raw) : marked(raw);
+    node.innerHTML = DOMPurify.sanitize(html);
+  } else {
+    node.textContent = raw;
+  }
+}
 
 function turn(who, text, cls){
   const t = el("turn "+(cls||""));
   el("who", t).textContent = who;
-  el("bubble", t).textContent = text;
+  const b = el("bubble", t);
+  if (cls === "agent") renderMarkdown(b, text);
+  else b.textContent = text;
   scroll();
   return t;
 }
@@ -153,9 +297,17 @@ function connect(){
 
 function setBusy(b){
   busy = b;
-  input.disabled = b; send.disabled = b || !input.value.trim();
+  input.disabled = b;
   modelSel.disabled = b;
+  send.classList.toggle("stop", b);
+  send.textContent = b ? "Stop" : "Send";
+  send.disabled = b ? false : !input.value.trim();
   if(!b) input.focus();
+}
+
+function cancel(){
+  if (!busy || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: "cancel" }));
 }
 
 let thinkingEl = null;
@@ -167,7 +319,6 @@ function showThinking(on){
   } else if(!on && thinkingEl){ thinkingEl.remove(); thinkingEl=null; }
 }
 
-// streaming: one live agent bubble we append tokens to
 let streamBubble = null;
 function startStream(){
   showThinking(false);
@@ -181,15 +332,108 @@ function appendToken(txt){
   streamBubble.textContent += txt;
   scroll();
 }
-function endStream(){ streamBubble = null; }
+function endStream(){
+  if (streamBubble){
+    const raw = streamBubble.textContent;
+    renderMarkdown(streamBubble, raw);
+    exportTurns.push({ role: "assistant", content: raw });
+  }
+  streamBubble = null;
+}
+
+function toolDetails(summary, open){
+  const d = document.createElement("details");
+  d.className = "tool";
+  d.open = open && !toolsCollapsed;
+  const s = document.createElement("summary");
+  s.textContent = summary;
+  d.appendChild(s);
+  log.appendChild(d);
+  scroll();
+  return d;
+}
+
+function renderChats(){
+  chatlist.innerHTML = "";
+  chats.forEach(c => {
+    const row = document.createElement("div");
+    row.className = "chatitem" + (c.id === currentChat ? " on" : "");
+    const title = document.createElement("button");
+    title.type = "button";
+    title.className = "title";
+    title.textContent = c.title || "New chat";
+    title.title = "Double-click to rename";
+    row.appendChild(title);
+    const x = document.createElement("button");
+    x.type = "button";
+    x.className = "x";
+    x.textContent = "×";
+    x.title = "Delete chat";
+    row.appendChild(x);
+    row.onclick = (ev) => {
+      if (ev.target === x || busy) return;
+      if (c.id === currentChat) return;
+      ws.send(JSON.stringify({ type: "switch_chat", id: c.id }));
+    };
+    title.ondblclick = (ev) => {
+      ev.stopPropagation();
+      if (busy) return;
+      const inp = document.createElement("input");
+      inp.value = c.title || "New chat";
+      title.replaceWith(inp);
+      inp.focus(); inp.select();
+      const commit = () => {
+        const name = inp.value.trim();
+        if (name && name !== c.title) ws.send(JSON.stringify({ type:"rename_chat", id:c.id, title:name }));
+        else renderChats();
+      };
+      inp.onblur = commit;
+      inp.onkeydown = (e) => {
+        if (e.key === "Enter") { e.preventDefault(); inp.blur(); }
+        if (e.key === "Escape") { e.preventDefault(); renderChats(); }
+      };
+    };
+    x.onclick = (ev) => {
+      ev.stopPropagation();
+      if (busy) return;
+      if (!confirm("Delete this chat?")) return;
+      ws.send(JSON.stringify({ type: "delete_chat", id: c.id }));
+    };
+    chatlist.appendChild(row);
+  });
+}
+
+function closeGate(approved, cancelled){
+  if (!pendingGate) return;
+  const g = pendingGate.el;
+  pendingGate = null;
+  g.classList.add("done");
+  const act = g.querySelector(".gact");
+  if (act) act.remove();
+  const v = document.createElement("div");
+  v.className = "verdict " + (cancelled ? "d" : approved ? "a" : "d");
+  v.textContent = cancelled ? "✕ cancelled" : approved ? "✓ allowed" : "✕ denied";
+  g.appendChild(v);
+  const wrap = toolDetails(g.dataset.tname || "tool", false);
+  wrap.appendChild(g);
+}
 
 function handle(m){
   switch(m.type){
-    case "history":              // saved conversation, shown on page load
-      log.innerHTML = "";
-      m.turns.forEach(t => turn(t.role==="user"?"you":"agent", t.content, t.role==="user"?"user":"agent"));
+    case "chats":
+      chats = m.items || [];
+      currentChat = m.current || "";
+      renderChats();
       break;
-    case "models": {             // populate the model dropdown
+    case "history":
+      log.innerHTML = "";
+      pendingGate = null;
+      exportTurns = (m.turns || []).map(t => ({ role: t.role, content: t.content }));
+      stickToBottom = true;
+      setBusy(false);
+      (m.turns || []).forEach(t => turn(t.role==="user"?"you":"agent", t.content, t.role==="user"?"user":"agent"));
+      break;
+    case "models": {
       modelSel.innerHTML = "";
       m.available.forEach(name => {
         const o = document.createElement("option");
@@ -204,20 +448,28 @@ function handle(m){
       ev.innerHTML = `⇄ <span class="tname">model</span> → ${escapeHtml(m.model)}`;
       scroll(); break;
     }
-    case "cleared":
-      log.innerHTML = ""; break;
     case "status":
       if(m.state==="thinking"){ setBusy(true); showThinking(true); }
       else { showThinking(false); setBusy(false); }
       break;
+    case "cancelled":
+      showThinking(false);
+      endStream();
+      closeGate(false, true);
+      setBusy(false);
+      break;
     case "assistant_start": startStream(); break;
     case "token": appendToken(m.content); break;
     case "assistant_end": endStream(); break;
-    case "assistant":                 // full message (e.g. hop-limit notice)
-      showThinking(false); turn("agent", m.content, "agent"); break;
-    case "tool_run": {           // auto-run tool (remember/read/search/fetch)
+    case "assistant":
+      showThinking(false); turn("agent", m.content, "agent");
+      exportTurns.push({ role: "assistant", content: m.content });
+      break;
+    case "tool_run": {
       showThinking(false);
-      const ev = el("event");
+      const label = m.name==="remember" ? "remembered" : m.name;
+      const box = toolDetails(label, true);
+      const ev = el("event", box);
       if(m.name==="remember"){
         ev.innerHTML = `💾 <span class="tname">remembered</span> ${escapeHtml(m.args.fact ?? "")}`;
       } else {
@@ -226,21 +478,33 @@ function handle(m){
       scroll(); break;
     }
     case "tool_result": {
-      const ev = el("event result");
+      if (pendingGate) closeGate(false, true);
+      let box = log.lastElementChild;
+      if (!box || !box.classList || !box.classList.contains("tool")){
+        box = toolDetails(m.name, false);
+      }
+      const ev = el("event result", box);
       el("head", ev).textContent = `${m.name} →`;
       const body = document.createElement("div"); body.textContent = m.content; ev.appendChild(body);
       scroll(); break;
     }
     case "tool_request": gate(m); break;
+    case "memory":
+      memtext.value = m.content || "";
+      break;
+    case "export_data":
+      finishExport(m);
+      break;
     case "error": turn("error", m.content, "agent"); break;
   }
 }
 
-function gate(m){                 // the approval moment
+function gate(m){
   showThinking(false);
   const g = el("gate");
+  g.dataset.tname = m.name;
   g.innerHTML = `
-    <div class="gtitle">⚠ agent wants to run ${m.name}</div>
+    <div class="gtitle">⚠ agent wants to run ${escapeHtml(m.name)}</div>
     <div class="cmd">${escapeHtml(m.args.command ?? JSON.stringify(m.args))}</div>
     <div class="gact">
       <button class="allow">Allow</button>
@@ -248,14 +512,11 @@ function gate(m){                 // the approval moment
     </div>`;
   scroll();
   const finish = (approved) => {
+    if (!pendingGate) return;
     ws.send(JSON.stringify({ id:m.id, approved }));
-    g.classList.add("done");
-    g.querySelector(".gact").remove();
-    const v = document.createElement("div");
-    v.className = "verdict " + (approved?"a":"d");
-    v.textContent = approved ? "✓ allowed" : "✕ denied";
-    g.appendChild(v);
+    closeGate(approved, false);
   };
+  pendingGate = { el: g, finish };
   g.querySelector(".allow").onclick = () => finish(true);
   g.querySelector(".deny").onclick  = () => finish(false);
   g.querySelector(".allow").focus();
@@ -263,31 +524,99 @@ function gate(m){                 // the approval moment
 
 function escapeHtml(s){ return String(s).replace(/[&<>]/g, c=>({ "&":"&amp;","<":"&lt;",">":"&gt;" }[c])); }
 
+function slug(s){
+  return (s || "chat").toLowerCase().replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,"").slice(0,40) || "chat";
+}
+function download(name, body, mime){
+  const blob = new Blob([body], { type: mime });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+function turnsToMarkdown(title, turns){
+  const lines = [`# ${title || "chat"}`, ""];
+  (turns || []).forEach(t => {
+    lines.push(t.role === "user" ? "## you" : "## agent", "", t.content || "", "");
+  });
+  return lines.join("\n");
+}
+function finishExport(m){
+  const title = m.title || "chat";
+  if (pendingExport === "md"){
+    download(slug(title)+".md", turnsToMarkdown(title, m.turns), "text/markdown");
+  } else if (pendingExport === "json"){
+    download(slug(title)+".json", JSON.stringify(m.messages, null, 2), "application/json");
+  }
+  pendingExport = null;
+}
+function requestExport(kind){
+  if (busy) return;
+  pendingExport = kind;
+  ws.send(JSON.stringify({ type: "export" }));
+}
+
 function submit(){
   const text = input.value.trim();
   if(!text || busy) return;
+  stickToBottom = true;
   turn("you", text, "user");
+  exportTurns.push({ role: "user", content: text });
+  setBusy(true);
   ws.send(JSON.stringify({ type:"user", content:text }));
-  input.value=""; input.style.height="auto"; send.disabled=true;
+  input.value=""; input.style.height="auto";
 }
+
+function openMemory(){
+  scrim.hidden = false; drawer.hidden = false;
+  ws.send(JSON.stringify({ type: "get_memory" }));
+  memtext.focus();
+}
+function closeMemory(){ scrim.hidden = true; drawer.hidden = true; }
 
 modelSel.onchange = () => {
   if(busy) return;
   ws.send(JSON.stringify({ type:"set_model", model: modelSel.value }));
 };
 
-document.getElementById("newchat").onclick = () => {
+function newChat(){
   if(busy) return;
-  ws.send(JSON.stringify({ type:"reset" }));
+  ws.send(JSON.stringify({ type:"new_chat" }));
+}
+document.getElementById("newchat").onclick = newChat;
+document.getElementById("newchat2").onclick = newChat;
+document.getElementById("membtn").onclick = openMemory;
+document.getElementById("memclose").onclick = closeMemory;
+scrim.onclick = closeMemory;
+document.getElementById("memsave").onclick = () => {
+  ws.send(JSON.stringify({ type:"set_memory", content: memtext.value }));
+};
+document.getElementById("memclear").onclick = () => {
+  if (!confirm("Clear all memory?")) return;
+  ws.send(JSON.stringify({ type:"clear_memory" }));
+};
+document.getElementById("exportmd").onclick = () => requestExport("md");
+document.getElementById("exportjson").onclick = () => requestExport("json");
+collapsebtn.onclick = () => {
+  toolsCollapsed = !toolsCollapsed;
+  collapsebtn.textContent = toolsCollapsed ? "Expand tools" : "Collapse tools";
+  log.querySelectorAll("details.tool").forEach(d => { d.open = !toolsCollapsed; });
 };
 
-send.onclick = submit;
+send.onclick = () => { if (busy) cancel(); else submit(); };
 input.addEventListener("input", ()=>{
-  send.disabled = busy || !input.value.trim();
+  if (!busy) send.disabled = !input.value.trim();
   input.style.height="auto"; input.style.height=Math.min(input.scrollHeight,160)+"px";
 });
 input.addEventListener("keydown", (e)=>{
   if(e.key==="Enter" && !e.shiftKey){ e.preventDefault(); submit(); }
+});
+document.addEventListener("keydown", (e)=>{
+  if (e.key === "Escape"){
+    if (!drawer.hidden) closeMemory();
+    else if (busy) cancel();
+  }
 });
 
 connect();

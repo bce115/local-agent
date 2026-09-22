@@ -2,6 +2,7 @@ __pycache__/
 *.pyc
 history.json
 memory.md
+chats/
 .venv/
 venv/
 env/
