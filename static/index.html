@@ -200,6 +200,9 @@
     <button class="ghost" id="exportjson">Export.json</button>
     <span class="status"><span class="dot" id="dot"></span><span id="statustext">connecting</span></span>
     <button class="ghost" id="newchat">New chat</button>
+    <form method="post" action="/logout" style="display:inline;margin:0">
+      <button class="ghost" type="submit">Log out</button>
+    </form>
   </header>
 
   <div class="shell">
@@ -272,7 +275,10 @@ function renderMarkdown(node, text){
     node.classList.add("md");
     node.style.whiteSpace = "normal";
     const html = typeof marked.parse === "function" ? marked.parse(raw) : marked(raw);
-    node.innerHTML = DOMPurify.sanitize(html);
+    node.innerHTML = DOMPurify.sanitize(html, {
+      FORBID_TAGS: ["style", "iframe", "object", "embed", "form"],
+      FORBID_ATTR: ["onerror", "onload", "style"],
+    });
   } else {
     node.textContent = raw;
   }

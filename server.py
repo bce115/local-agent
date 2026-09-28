@@ -16,23 +16,31 @@ Persistence:
 
     pip install openai fastapi "uvicorn[standard]"
     ollama pull devstral-small-2
-    python server.py            # then open http://localhost:8000
+    python server.py            # then open http://127.0.0.1:8000/login
 """
 
 from __future__ import annotations
 
 import asyncio
+import hashlib
+import hmac
 import json
 import os
+import secrets
+import socket
 import time
 import uuid
+from collections import defaultdict, deque
 from dataclasses import dataclass, field
+from urllib.parse import urlparse
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, Form, Request, WebSocket, WebSocketDisconnect
+from fastapi.responses import FileResponse, RedirectResponse, Response
 from fastapi.staticfiles import StaticFiles
 from openai import AsyncOpenAI
+from starlette.middleware.base import BaseHTTPMiddleware
 
+import security
 import tools
 
 BASE_URL = "http://localhost:11434/v1"
@@ -41,20 +49,171 @@ MAX_TOOL_HOPS = 8
 LEGACY_HISTORY = "history.json"
 CHATS_DIR = "chats"
 INDEX_FILE = os.path.join(CHATS_DIR, "index.json")
+SECRET_FILE = ".agent_secret"
+COOKIE_NAME = "agent_session"
+SESSION_TTL = 7 * 24 * 3600
+AGENT_HOST = os.environ.get("AGENT_HOST", "127.0.0.1").strip() or "127.0.0.1"
+AGENT_PORT = int(os.environ.get("AGENT_PORT", "8000"))
 
 # The active model. Mutable so the UI can switch it at runtime. The rest of the
 # code reads STATE["model"] instead of a constant.
 STATE = {"model": "devstral-small-2"}
 
 BASE_SYSTEM_PROMPT = """You are a local assistant running on the user's own machine.
-You have tools to run shell commands, read and search local files, fetch web
-pages, and remember durable facts. Use tools when they help; answer directly
-when they don't. Be concise and technical. When something about the user or
-their setup is worth recalling later (a preference, a name, a path, an ongoing
-project), call the remember tool. When you run a command, briefly say why."""
+You have tools to read and search files in the project folder, fetch public web
+pages (after the user approves), and remember durable facts. Shell access is
+only available if the operator enabled it. Use tools when they help; answer
+directly when they don't. Be concise and technical. When something about the
+user or their setup is worth recalling later (a preference, a name, a path, an
+ongoing project), call the remember tool. When you run a command, briefly say why."""
 
 client = AsyncOpenAI(base_url=BASE_URL, api_key="ollama")
 app = FastAPI()
+
+SECURITY_HEADERS = {
+    "X-Content-Type-Options": "nosniff",
+    "X-Frame-Options": "DENY",
+    "Referrer-Policy": "no-referrer",
+    "Cache-Control": "no-store",
+    "Content-Security-Policy": (
+        "default-src 'self'; connect-src 'self' ws: wss:; "
+        "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; "
+        "font-src https://fonts.gstatic.com; "
+        "script-src 'self' 'unsafe-inline'"
+    ),
+}
+
+_login_attempts: dict[str, deque[float]] = defaultdict(deque)
+_password_cache: str | None = None
+_printed_new_secret = False
+
+
+def _is_loopback_host(host: str) -> bool:
+    return host in {"127.0.0.1", "localhost", "::1", "[::1]"}
+
+
+def peek_password() -> str:
+    """Configured password only — does not create .agent_secret."""
+    env = os.environ.get("AGENT_PASSWORD", "").strip()
+    if env:
+        return env
+    if os.path.exists(SECRET_FILE):
+        with open(SECRET_FILE, encoding="utf-8") as f:
+            stored = f.read().strip()
+        if stored:
+            return stored
+    return ""
+
+
+def load_or_create_password() -> str:
+    global _password_cache, _printed_new_secret
+    if _password_cache is not None:
+        return _password_cache
+    existing = peek_password()
+    if existing:
+        _password_cache = existing
+        return existing
+    secret = secrets.token_urlsafe(18)
+    with open(SECRET_FILE, "w", encoding="utf-8") as f:
+        f.write(secret + "\n")
+    try:
+        os.chmod(SECRET_FILE, 0o600)
+    except OSError:
+        pass
+    _password_cache = secret
+    _printed_new_secret = True
+    return secret
+
+
+def _session_key() -> bytes:
+    return hashlib.sha256(b"local-agent-session|" + load_or_create_password().encode()).digest()
+
+
+def mint_session() -> str:
+    exp = str(int(time.time()) + SESSION_TTL)
+    nonce = secrets.token_hex(16)
+    payload = f"{exp}.{nonce}"
+    sig = hmac.new(_session_key(), payload.encode(), hashlib.sha256).hexdigest()
+    return f"{payload}.{sig}"
+
+
+def session_ok(token: str | None) -> bool:
+    if not token:
+        return False
+    try:
+        exp, nonce, sig = token.split(".")
+        payload = f"{exp}.{nonce}"
+        expect = hmac.new(_session_key(), payload.encode(), hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expect, sig):
+            return False
+        return int(exp) >= int(time.time())
+    except (ValueError, TypeError):
+        return False
+
+
+def login_rate_ok(ip: str) -> bool:
+    now = time.time()
+    q = _login_attempts[ip]
+    while q and now - q[0] > 60:
+        q.popleft()
+    if len(q) >= 5:
+        return False
+    q.append(now)
+    return True
+
+
+def lan_addresses() -> set[str]:
+    found = {"127.0.0.1", "localhost", "::1"}
+    try:
+        hostname = socket.gethostname()
+        found.add(hostname)
+        found.add(hostname.lower())
+        for info in socket.getaddrinfo(hostname, None):
+            found.add(info[4][0].split("%")[0])
+    except OSError:
+        pass
+    if AGENT_HOST not in {"0.0.0.0", "::"}:
+        found.add(AGENT_HOST)
+    return found
+
+
+def origin_ok(origin: str | None, host_header: str | None) -> bool:
+    allowed = {a.lower() for a in lan_addresses()}
+    if origin:
+        parsed = urlparse(origin)
+        oh = (parsed.hostname or "").lower()
+        if not oh or oh not in allowed:
+            return False
+    if host_header:
+        host = host_header.split(":")[0].strip().lower()
+        if host and host not in allowed:
+            return False
+    return True
+
+
+def apply_security_headers(response: Response) -> Response:
+    for k, v in SECURITY_HEADERS.items():
+        response.headers.setdefault(k, v)
+    return response
+
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        if path == "/ws":
+            response = await call_next(request)
+            return apply_security_headers(response)
+        public = path == "/login" or path.startswith("/static/vendor/") or path == "/static/login.html"
+        if not public and not session_ok(request.cookies.get(COOKIE_NAME)):
+            return apply_security_headers(RedirectResponse("/login", status_code=303))
+        if not origin_ok(request.headers.get("origin"), request.headers.get("host")) and path not in ("/login",):
+            if request.method not in {"GET", "HEAD"}:
+                return apply_security_headers(Response("forbidden origin", status_code=403))
+        response = await call_next(request)
+        return apply_security_headers(response)
+
+
+app.add_middleware(AuthMiddleware)
 
 
 @dataclass
@@ -98,8 +257,7 @@ def read_memory() -> str:
 
 
 def write_memory(content: str) -> None:
-    with open(tools.MEMORY_FILE, "w", encoding="utf-8") as f:
-        f.write(content)
+    tools.write_memory_text(content)
 
 
 def clear_memory() -> None:
@@ -262,6 +420,36 @@ def replay(messages: list) -> list:
 
 # --- routes ---------------------------------------------------------------
 
+@app.get("/login")
+async def login_page() -> FileResponse:
+    return FileResponse("static/login.html")
+
+
+@app.post("/login")
+async def login(request: Request, password: str = Form(...)) -> Response:
+    ip = request.client.host if request.client else "unknown"
+    if not login_rate_ok(ip):
+        return RedirectResponse("/login?e=rate", status_code=303)
+    expected = load_or_create_password()
+    given = hashlib.sha256(password.encode("utf-8")).digest()
+    expect = hashlib.sha256(expected.encode("utf-8")).digest()
+    if not hmac.compare_digest(given, expect):
+        return RedirectResponse("/login?e=1", status_code=303)
+    resp = RedirectResponse("/", status_code=303)
+    resp.set_cookie(
+        COOKIE_NAME, mint_session(), httponly=True, samesite="lax",
+        path="/", max_age=SESSION_TTL,
+    )
+    return apply_security_headers(resp)
+
+
+@app.post("/logout")
+async def logout() -> Response:
+    resp = RedirectResponse("/login", status_code=303)
+    resp.delete_cookie(COOKIE_NAME, path="/")
+    return apply_security_headers(resp)
+
+
 @app.get("/")
 async def index() -> FileResponse:
     return FileResponse("static/index.html")
@@ -310,6 +498,12 @@ async def reader(conn: Conn) -> None:
 
 @app.websocket("/ws")
 async def ws(sock: WebSocket) -> None:
+    if not session_ok(sock.cookies.get(COOKIE_NAME)):
+        await sock.close(code=4401)
+        return
+    if not origin_ok(sock.headers.get("origin"), sock.headers.get("host")):
+        await sock.close(code=4403)
+        return
     await sock.accept()
     conn = Conn(sock=sock)
     items = load_index()
@@ -563,4 +757,19 @@ async def run_turn(conn: Conn) -> None:
 if __name__ == "__main__":
     import uvicorn
 
-    uvicorn.run(app, host="127.0.0.1", port=8000)
+    if not _is_loopback_host(AGENT_HOST) and not peek_password():
+        raise SystemExit(
+            "Refusing to bind a non-loopback host without a password. "
+            "Set AGENT_PASSWORD or create .agent_secret."
+        )
+    password = load_or_create_password()
+    display = "127.0.0.1" if AGENT_HOST in {"0.0.0.0", "::"} else AGENT_HOST
+    print(f"local agent  http://{display}:{AGENT_PORT}/login")
+    if _printed_new_secret:
+        print(f"password     {password}  (saved to {SECRET_FILE})")
+    elif os.environ.get("AGENT_PASSWORD"):
+        print("password     (AGENT_PASSWORD)")
+    else:
+        print(f"password     (from {SECRET_FILE})")
+    print("shell        " + ("ON  AGENT_ALLOW_SHELL=1" if security.allow_shell() else "off  (set AGENT_ALLOW_SHELL=1 to enable)"))
+    uvicorn.run(app, host=AGENT_HOST, port=AGENT_PORT)

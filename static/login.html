@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>local agent · login</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#0f1319; --panel:#161b23; --raised:#1e242f; --border:#2a313d;
+    --text:#e4e8f0; --muted:#828b9c; --user:#6ea8fe; --danger:#e5747a;
+    --mono:"IBM Plex Mono",ui-monospace,monospace;
+    --sans:"IBM Plex Sans",system-ui,sans-serif;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%;margin:0}
+  body{
+    background:var(--bg); color:var(--text); font-family:var(--sans);
+    display:flex; align-items:center; justify-content:center; font-size:15px;
+  }
+  form{
+    width:min(380px,92vw); background:var(--panel); border:1px solid var(--border);
+    border-radius:12px; padding:28px 24px 22px;
+  }
+  .wordmark{font-family:var(--mono); font-weight:600; margin-bottom:6px}
+  .wordmark .caret{color:var(--user)}
+  p{color:var(--muted); font-size:13px; margin:0 0 18px; line-height:1.45}
+  label{display:block; font-family:var(--mono); font-size:12px; color:var(--muted); margin-bottom:6px}
+  input{
+    width:100%; background:var(--bg); color:var(--text); border:1px solid var(--border);
+    border-radius:8px; padding:11px 12px; font-size:15px; margin-bottom:14px;
+  }
+  input:focus{outline:none; border-color:var(--user)}
+  button{
+    width:100%; font-family:var(--sans); font-size:14px; font-weight:600;
+    border:1px solid var(--user); border-radius:8px; padding:10px;
+    background:var(--user); color:#0f1319; cursor:pointer;
+  }
+  .err{color:var(--danger); font-family:var(--mono); font-size:12.5px; margin:0 0 12px}
+</style>
+</head>
+<body>
+  <form method="post" action="/login" autocomplete="current-password">
+    <div class="wordmark"><span class="caret">›</span>&nbsp;local&nbsp;agent</div>
+    <p>This UI is password-protected. Use the value from <code>AGENT_PASSWORD</code> or <code>.agent_secret</code>.</p>
+    <p class="err" id="err" hidden></p>
+    <label for="password">password</label>
+    <input id="password" name="password" type="password" required autofocus>
+    <button type="submit">Sign in</button>
+  </form>
+<script>
+const q = new URLSearchParams(location.search);
+const err = document.getElementById("err");
+if (q.get("e") === "1"){ err.hidden = false; err.textContent = "Wrong password."; }
+if (q.get("e") === "rate"){ err.hidden = false; err.textContent = "Too many attempts. Wait a minute."; }
+</script>
+</body>
+</html>

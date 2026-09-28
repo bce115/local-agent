@@ -31,9 +31,10 @@ MAX_TOOL_HOPS = 8
 CONFIRM = True
 
 SYSTEM_PROMPT = """You are a local assistant running on the user's own machine.
-You have tools to run shell commands, read and search local files, and fetch
-web pages. Use them when they help; answer directly when they don't. Be concise
-and technical. When you run a command, briefly say why before you call it."""
+You have tools to read and search local files in the project folder, fetch
+public web pages (after you approve), and remember durable facts. Shell is
+only available if enabled. Use them when they help; answer directly when they
+don't. Be concise and technical. When you run a command, briefly say why before you call it."""
 
 client = OpenAI(base_url=BASE_URL, api_key="ollama")
 

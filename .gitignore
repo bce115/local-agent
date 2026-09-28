@@ -9,3 +9,5 @@ env/
 files/
 .DS_Store
 *.log
+.agent_secret
+.env
